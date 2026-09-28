@@ -1,6 +1,15 @@
 const std = @import("std");
 
-const guests = [_][]const u8{ "guest_v1", "guest_v2", "guest_v3" };
+/// A guest on the original layout needs no migration, and not exporting one is
+/// how it says so.
+const Guest = struct { name: []const u8, migrates: bool = false };
+
+const guests = [_]Guest{
+    .{ .name = "guest_v1" },
+    .{ .name = "guest_v2" },
+    .{ .name = "guest_v3", .migrates = true },
+    .{ .name = "guest_v4", .migrates = true },
+};
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -32,7 +41,8 @@ pub fn build(b: *std.Build) void {
         .cpu_features_add = std.Target.wasm.featureSet(&.{ .atomics, .bulk_memory }),
     });
 
-    for (guests) |name| {
+    for (guests) |g| {
+        const name = g.name;
         const guest = b.addExecutable(.{
             .name = name,
             .root_module = b.createModule(.{
@@ -47,7 +57,10 @@ pub fn build(b: *std.Build) void {
         guest.initial_memory = 1 << 20;
         guest.max_memory = 1 << 20;
         guest.stack_size = 16 << 10;
-        guest.root_module.export_symbol_names = &.{"step"};
+        guest.root_module.export_symbol_names = if (g.migrates)
+            &.{ "step", "layout", "migrate" }
+        else
+            &.{ "step", "layout" };
 
         host.root_module.addAnonymousImport(b.fmt("{s}.wasm", .{name}), .{
             .root_source_file = guest.getEmittedBin(),

@@ -1,6 +1,5 @@
-//! Guest v3. Correct, migrates correctly, and far too slow to hold the cycle
-//! budget. Exists to be rejected *after* its migration has already run on the
-//! candidate's scratch copy, which is what shows live state surviving intact.
+//! Guest v4. New layout, and fast enough to keep it. Tracks `drift` forward
+//! instead of leaving it at its migrated value.
 
 const abi = @import("abi.zig");
 const sensor = @import("sensor.zig");
@@ -22,12 +21,6 @@ export fn step(iters: u32) void {
     const sample = sensor.value();
     var i: u32 = 0;
     while (i < iters) : (i += 1) {
-        // Burns time. The `if` keeps the optimizer from deleting the loop.
-        var grind: f64 = 0;
-        var k: u32 = 0;
-        while (k < 5000) : (k += 1) grind += @floatFromInt(k);
-        if (grind < 0) return;
-
         h.tick += 1;
         s.accum += 3.0 * sample;
         var p = s.phase + 0.75;
@@ -35,4 +28,5 @@ export fn step(iters: u32) void {
         s.phase = p;
         h.seq += 1;
     }
+    s.drift = s.accum / @as(f64, @floatFromInt(h.tick));
 }

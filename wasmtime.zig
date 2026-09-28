@@ -126,6 +126,7 @@ pub const SharedMemory = struct {
 
 pub const Extern = union(enum) {
     shared_memory: SharedMemory,
+    func: c.wasmtime_func_t,
 
     fn toC(self: Extern) c.wasmtime_extern_t {
         return switch (self) {
@@ -135,9 +136,37 @@ pub const Extern = union(enum) {
                 .kind = c.WASMTIME_EXTERN_SHAREDMEMORY,
                 .of = .{ .sharedmemory = c.wasmtime_sharedmemory_clone(m.ptr) },
             },
+            .func => |f| .{ .kind = c.WASMTIME_EXTERN_FUNC, .of = .{ .func = f } },
         };
     }
 };
+
+/// Host function of type `() -> f64` reading `src` at call time. `src` must
+/// outlive `store`. Narrow on purpose: a general binding would be more
+/// machinery than one sensor read needs.
+pub fn funcReadF64(store: Store, src: *const f64) Extern {
+    const ty = c.wasm_functype_new_0_1(c.wasm_valtype_new(c.WASM_F64)).?;
+    defer c.wasm_functype_delete(ty);
+
+    const trampoline = struct {
+        fn call(
+            env: ?*anyopaque,
+            _: ?*c.wasmtime_caller_t,
+            _: [*c]const c.wasmtime_val_t,
+            _: usize,
+            results: [*c]c.wasmtime_val_t,
+            _: usize,
+        ) callconv(.c) ?*c.wasm_trap_t {
+            const p: *const f64 = @ptrCast(@alignCast(env.?));
+            results[0] = .{ .kind = c.WASMTIME_F64, .of = .{ .f64 = p.* } };
+            return null;
+        }
+    }.call;
+
+    var f: c.wasmtime_func_t = undefined;
+    c.wasmtime_func_new(store.ctx, ty, trampoline, @constCast(src), null, &f);
+    return .{ .func = f };
+}
 
 pub const Instance = struct {
     inner: c.wasmtime_instance_t,
